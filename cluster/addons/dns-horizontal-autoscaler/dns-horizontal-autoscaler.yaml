@@ -86,7 +86,7 @@ spec:
         kubernetes.io/os: linux
       containers:
       - name: autoscaler
-        image: k8s.gcr.io/cluster-proportional-autoscaler-amd64:1.7.1
+        image: mcr.microsoft.com/oss/kubernetes/autoscaler/cluster-proportional-autoscaler:1.7.1-hotfix.20200403
         resources:
             requests:
                 cpu: "20m"
@@ -102,6 +102,12 @@ spec:
           - --default-params={"linear":{"coresPerReplica":256,"nodesPerReplica":16,"preventSinglePointFailure":true}}
           - --logtostderr=true
           - --v=2
+        livenessProbe:
+          httpGet:
+            path: /last-poll
+            port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
       tolerations:
       - key: "CriticalAddonsOnly"
         operator: "Exists"

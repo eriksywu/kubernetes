@@ -45,7 +45,7 @@ const (
 	DNSAutoscalerLabelName = "kube-dns-autoscaler"
 )
 
-var _ = SIGDescribe("DNS horizontal autoscaling", func() {
+var _ = SIGDescribe("[ProportionalScaling] DNS horizontal autoscaling", func() {
 	f := framework.NewDefaultFramework("dns-autoscaling")
 	var c clientset.Interface
 	var previousParams map[string]string
@@ -102,7 +102,7 @@ var _ = SIGDescribe("DNS horizontal autoscaling", func() {
 
 	// This test is separated because it is slow and need to run serially.
 	// Will take around 5 minutes to run on a 4 nodes cluster.
-	ginkgo.It("[Serial] [Slow] kube-dns-autoscaler should scale kube-dns pods when cluster size changed", func() {
+	ginkgo.It("[ProportionalScaling] [Serial] [Slow] kube-dns-autoscaler should scale kube-dns pods when cluster size changed", func() {
 		numNodes, err := e2enode.TotalRegistered(c)
 		framework.ExpectNoError(err)
 
@@ -167,7 +167,7 @@ var _ = SIGDescribe("DNS horizontal autoscaling", func() {
 	})
 
 	// TODO: Get rid of [DisabledForLargeClusters] tag when issue #55779 is fixed.
-	ginkgo.It("[DisabledForLargeClusters] kube-dns-autoscaler should scale kube-dns pods in both nonfaulty and faulty scenarios", func() {
+	ginkgo.It("[ProportionalScaling] [DisabledForLargeClusters] kube-dns-autoscaler should scale kube-dns pods in both nonfaulty and faulty scenarios", func() {
 
 		ginkgo.By("Replace the dns autoscaling parameters with testing parameters")
 		err := updateDNSScalingConfigMap(c, packDNSScalingConfigMap(packLinearParams(&DNSParams1)))

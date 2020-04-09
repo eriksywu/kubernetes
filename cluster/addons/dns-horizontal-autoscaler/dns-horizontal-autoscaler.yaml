@@ -102,12 +102,12 @@ spec:
           - --default-params={"linear":{"coresPerReplica":256,"nodesPerReplica":16,"preventSinglePointFailure":true}}
           - --logtostderr=true
           - --v=2
-        livenessProbe:
-          httpGet:
-            path: /last-poll
-            port: 8080
-            initialDelaySeconds: 10
-            periodSeconds: 10
+        #livenessProbe:
+         # httpGet:
+          #  path: /last-poll
+          #  port: 8080
+          #initialDelaySeconds: 10
+          #periodSeconds: 10
       tolerations:
       - key: "CriticalAddonsOnly"
         operator: "Exists"

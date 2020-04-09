@@ -32,7 +32,7 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	e2enode "k8s.io/kubernetes/test/e2e/framework/node"
 	e2epod "k8s.io/kubernetes/test/e2e/framework/pod"
-	e2eskipper "k8s.io/kubernetes/test/e2e/framework/skipper"
+	_ "k8s.io/kubernetes/test/e2e/framework/skipper"
 
 	"github.com/onsi/ginkgo"
 )
@@ -55,7 +55,7 @@ var _ = SIGDescribe("[ProportionalScaling] DNS horizontal autoscaling", func() {
 	var DNSParams3 DNSParamsLinear
 
 	ginkgo.BeforeEach(func() {
-		e2eskipper.SkipUnlessProviderIs("gce", "gke", "aks", "azure")
+		//e2eskipper.SkipUnlessProviderIs("gce", "gke", "aks", "azure")
 		c = f.ClientSet
 
 		nodes, err := e2enode.GetReadySchedulableNodes(c)

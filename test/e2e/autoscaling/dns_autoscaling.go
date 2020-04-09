@@ -125,6 +125,7 @@ var _ = SIGDescribe("[ProportionalScaling] DNS horizontal autoscaling", func() {
 		framework.ExpectNoError(err)
 
 		originalSizes := make(map[string]int)
+		ginkgo.By(fmt.Sprintf("going through node instance groups %s", framework.TestContext.CloudConfig.NodeInstanceGroup))
 		for _, mig := range strings.Split(framework.TestContext.CloudConfig.NodeInstanceGroup, ",") {
 			size, err := framework.GroupSize(mig)
 			framework.ExpectNoError(err)

@@ -165,6 +165,7 @@ export PATH
   --cloud-config-file="${CLOUD_CONFIG:-}" \
   --repo-root="${KUBE_ROOT}" \
   --node-instance-group="${NODE_INSTANCE_GROUP:-}" \
+  --node-pool="${NODE_POOL:-}" \
   --prefix="${KUBE_GCE_INSTANCE_PREFIX:-e2e}" \
   --network="${KUBE_GCE_NETWORK:-${KUBE_GKE_NETWORK:-e2e}}" \
   --node-tag="${NODE_TAG:-}" \

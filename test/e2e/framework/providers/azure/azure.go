@@ -17,23 +17,42 @@ limitations under the License.
 package azure
 
 import (
-	"errors"
+	"context"
 	"fmt"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/services/compute/mgmt/2019-12-01/compute"
+	cs "github.com/Azure/azure-sdk-for-go/services/containerservice/mgmt/2019-08-01/containerservice"
 
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
+	"k8s.io/apimachinery/pkg/util/wait"
+	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/legacy-cloud-providers/azure"
 )
 
+// TODO move these to cmd-line flags
+const (
+	subscriptionIDEnv    = "SUBSCRIPTION_ID"
+	resourceGroupNameEnv = "RESOURCE_GROUP"
+	resourceNameEnv      = "AKS_RESOURCE_NAME"
+)
+
+const notImplemented = "Not yet implemented for Azure Provider"
+
 func init() {
+	framework.Logf("AZURE PROVIDER PACKAGE INITIALIZED")
 	framework.RegisterProvider("azure", newProvider)
+	framework.RegisterProvider("aks", newProvider)
 }
 
 func newProvider() (framework.ProviderInterface, error) {
+	framework.Logf("Constructing new Azure Provider")
 	if framework.TestContext.CloudConfig.ConfigFile == "" {
 		return nil, fmt.Errorf("config-file must be specified for Azure")
 	}
@@ -43,10 +62,52 @@ func newProvider() (framework.ProviderInterface, error) {
 			framework.TestContext.CloudConfig.ConfigFile, err)
 	}
 	defer config.Close()
+	framework.Logf("New azure cloud client from config file %s", framework.TestContext.CloudConfig.ConfigFile)
 	azureCloud, err := azure.NewCloud(config)
+	k8sClientSet, err := newK8SClientSet()
+	if err != nil {
+		return nil, err
+	}
+
+	azureCloud.(*azure.Cloud).KubeClient = k8sClientSet
+
+	subscriptionID := os.Getenv(subscriptionIDEnv)
+	if subscriptionID == "" {
+		return nil, fmt.Errorf("Could not fetch subscriptionID from environment variable %s", subscriptionIDEnv)
+	}
+
+	resourceName := os.Getenv(resourceNameEnv)
+	if resourceName == "" {
+		return nil, fmt.Errorf("Could not fetch resourceName from environment variable %s", resourceNameEnv)
+	}
+
+	resourceGroupName := os.Getenv(resourceGroupNameEnv)
+	if resourceGroupName == "" {
+		return nil, fmt.Errorf("Could not fetch resourceGroupName from environment variable %s", resourceGroupNameEnv)
+	}
+
+	mc := cs.NewManagedClustersClient(subscriptionID)
 	return &Provider{
-		azureCloud: azureCloud.(*azure.Cloud),
+		azureCloud:           azureCloud.(*azure.Cloud),
+		managedClusterClient: mc,
+		subscriptionID:       subscriptionID,
+		resourceName:         resourceName,
+		resourceGroupName:    resourceGroupName,
 	}, err
+}
+
+// TODO find out why this isn't instantiated by the legacy azure-cloud-provider builder on line 58
+func newK8SClientSet() (clientset.Interface, error) {
+	kubeConfig := clientcmd.GetConfigFromFileOrDie(framework.TestContext.KubeConfig)
+	restConfig, err := clientcmd.NewDefaultClientConfig(*kubeConfig, &clientcmd.ConfigOverrides{}).ClientConfig()
+	if err != nil {
+		return nil, err
+	}
+	k8sClientSet, err := clientset.NewForConfig(restConfig)
+	if err != nil {
+		return nil, err
+	}
+	return k8sClientSet, nil
 }
 
 //Provider is a structure to handle Azure clouds for e2e testing
@@ -54,11 +115,111 @@ type Provider struct {
 	framework.NullProvider
 
 	azureCloud *azure.Cloud
+
+	// TODO can I move this into *azure.Cloud?
+	managedClusterClient cs.ManagedClustersClient
+
+	resourceGroupName string
+	resourceName      string
+	subscriptionID    string
+}
+
+// GroupSize returns the size of an instance group
+// AKS: get vm
+func (p *Provider) GroupSize(group string) (int, error) {
+	// TODO: need to check if cluster was deployed by aksengine
+	framework.Logf("Getting Node List from group = %s", group)
+
+	var nodes *v1.NodeList
+	err := wait.PollImmediate(60*time.Second, 10*time.Second, func() (bool, error) {
+		var err error
+		nodes, err = p.azureCloud.KubeClient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	})
+	if err != nil {
+		return -1, err
+	}
+	for _, n := range nodes.Items {
+		fmt.Printf("node name: %s \n", n.Name)
+		fmt.Printf("node labels: %v \n", n.Labels)
+		fmt.Printf("node annotations: %v \n", n.Annotations)
+		fmt.Printf("node taints: %v \n", n.Spec.Taints)
+	}
+	return len(nodes.Items), nil
+}
+
+func (p *Provider) ResizeGroup(group string, size int32) error {
+	framework.Logf("resizing to size %d", group, size)
+	if p.azureCloud == nil {
+		return fmt.Errorf("Azure Cloud not initialized")
+	}
+	mcModel, err := p.managedClusterClient.Get(context.TODO(), p.resourceGroupName, p.resourceName)
+	if err != nil {
+		return err
+	}
+	if mcModel.AgentPoolProfiles == nil || len(*mcModel.AgentPoolProfiles) == 0 {
+		return fmt.Errorf("No agent pools found")
+	}
+
+	// TODO handle multiple agent pools
+	agentPoolProfiles := *(mcModel.AgentPoolProfiles)
+	for i, p := range agentPoolProfiles {
+		framework.Logf("resizing pool %s from size %d to size %d", p.Name, p.Count, size)
+		*agentPoolProfiles[i].Count = size
+	}
+	// should this share the same context as its returned future object?
+	resFuture, err := p.managedClusterClient.CreateOrUpdate(context.Background(), p.resourceGroupName, p.resourceName, mcModel)
+	if err != nil {
+		return err
+	}
+	// is 1hr too long?
+	updateCtx, cancelFn := context.WithTimeout(context.Background(), time.Hour)
+	defer cancelFn()
+	// wait for update operation to complete
+	err = resFuture.WaitForCompletionRef(updateCtx, p.managedClusterClient.Client)
+	if err != nil {
+		return err
+	}
+	_, err = resFuture.Result(p.managedClusterClient)
+	if err != nil {
+		return err
+	}
+	var newSize int
+	newSize, err = p.GroupSize(group)
+	if err != nil {
+		return err
+	}
+	if newSize != int(size)+1 {
+		return fmt.Errorf("Kubenetes not updated to new size, actualSize = %d", newSize)
+	}
+
+	return nil
 }
 
 // DeleteNode deletes a node which is specified as the argument
+// Note: The actual node from the agent pool is not deleted
 func (p *Provider) DeleteNode(node *v1.Node) error {
-	return errors.New("not implemented yet")
+	framework.Logf("deleting node = %s", node.Name)
+	if p.azureCloud == nil {
+		return fmt.Errorf("Azure Cloud not initialized")
+	}
+	if err := p.azureCloud.KubeClient.CoreV1().Nodes().Delete(context.TODO(), node.Name, metav1.DeleteOptions{}); err != nil {
+		return err
+	}
+	if err := wait.PollImmediate(60*time.Second, 60*time.Second, func() (bool, error) {
+		if _, err := p.azureCloud.KubeClient.CoreV1().Nodes().Get(context.TODO(), node.Name, metav1.GetOptions{}); err != nil {
+			// node has been deleted - exit with success
+			return strings.Contains(err.Error(), string(metav1.StatusReasonNotFound)), nil
+		}
+		return false, nil
+	}); err != nil {
+		return err
+	}
+	return nil
+
 }
 
 // CreatePD creates a persistent volume

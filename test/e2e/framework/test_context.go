@@ -237,6 +237,7 @@ type CloudConfig struct {
 	ConfigFile        string // for azure and openstack
 	NodeTag           string
 	MasterTag         string
+	NodePool          string // comma-delimited list of node pools for azure
 
 	Provider ProviderInterface
 }
@@ -337,6 +338,7 @@ func RegisterClusterFlags(flags *flag.FlagSet) {
 	flags.BoolVar(&cloudConfig.MultiMaster, "gce-multimaster", false, "If true, the underlying GCE/GKE cluster is assumed to be multi-master.")
 	flags.StringVar(&cloudConfig.Cluster, "gke-cluster", "", "GKE name of cluster being used, if applicable")
 	flags.StringVar(&cloudConfig.NodeInstanceGroup, "node-instance-group", "", "Name of the managed instance group for nodes. Valid only for gce, gke or aws. If there is more than one group: comma separated list of groups.")
+	flags.StringVar(&cloudConfig.NodePool, "node-pool", "", "Name of the managed nood pool. Valid only for aks. If there is more than one pool: comma separated list of groups.")
 	flags.StringVar(&cloudConfig.Network, "network", "e2e", "The cloud provider network for this e2e cluster.")
 	flags.IntVar(&cloudConfig.NumNodes, "num-nodes", DefaultNumNodes, fmt.Sprintf("Number of nodes in the cluster. If the default value of '%q' is used the number of schedulable nodes is auto-detected.", DefaultNumNodes))
 	flags.StringVar(&cloudConfig.ClusterIPRange, "cluster-ip-range", "10.64.0.0/14", "A CIDR notation IP range from which to assign IPs in the cluster.")
@@ -437,6 +439,7 @@ func AfterReadingAllFlags(t *TestContextType) {
 	}
 
 	var err error
+	Logf("Using Cloud Provider = %s", TestContext.Provider)
 	TestContext.CloudConfig.Provider, err = SetupProviderConfig(TestContext.Provider)
 	if err != nil {
 		if os.IsNotExist(errors.Cause(err)) {

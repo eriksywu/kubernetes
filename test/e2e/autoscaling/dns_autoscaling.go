@@ -32,7 +32,8 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	e2enode "k8s.io/kubernetes/test/e2e/framework/node"
 	e2epod "k8s.io/kubernetes/test/e2e/framework/pod"
-	_ "k8s.io/kubernetes/test/e2e/framework/skipper"
+	_ "k8s.io/kubernetes/test/e2e/framework/providers/azure"
+	e2eskipper "k8s.io/kubernetes/test/e2e/framework/skipper"
 
 	"github.com/onsi/ginkgo"
 )
@@ -126,12 +127,25 @@ var _ = SIGDescribe("[ProportionalScaling] DNS horizontal autoscaling", func() {
 
 		originalSizes := make(map[string]int)
 		ginkgo.By(fmt.Sprintf("going through node instance groups %s", framework.TestContext.CloudConfig.NodeInstanceGroup))
-		for _, mig := range strings.Split(framework.TestContext.CloudConfig.NodeInstanceGroup, ",") {
+
+		var nodeGroups string
+		if framework.TestContext.Provider == "azure" {
+			// needs more work for this to work on multiple node pools
+			framework.Logf("Provider is azure, using single node pool for now: %s", framework.TestContext.CloudConfig.NodePool)
+			nodeGroups = framework.TestContext.CloudConfig.NodePool
+		} else {
+			nodeGroups = framework.TestContext.CloudConfig.NodeInstanceGroup
+		}
+
+		for _, mig := range strings.Split(nodeGroups, ",") {
+			framework.Logf("~~~~~~~~~~~~~~MANAGED NODE GROUP~~~~~~~~~~~~: %s", mig)
 			size, err := framework.GroupSize(mig)
 			framework.ExpectNoError(err)
 			ginkgo.By(fmt.Sprintf("Initial size of %s: %d", mig, size))
 			originalSizes[mig] = size
 		}
+
+		//framework.
 
 		ginkgo.By("Manually increase cluster size")
 		increasedSizes := make(map[string]int)
@@ -221,6 +235,31 @@ var _ = SIGDescribe("[ProportionalScaling] DNS horizontal autoscaling", func() {
 		getExpectReplicasLinear = getExpectReplicasFuncLinear(c, &DNSParams1)
 		err = waitForDNSReplicasSatisfied(c, getExpectReplicasLinear, DNSdefaultTimeout)
 		framework.ExpectNoError(err)
+	})
+
+	ginkgo.It("[ProportionalScaling] [Liveness] kube-dns-autoscaler should restart at liveness fail", func() {
+
+		ginkgo.By("Replace the dns autoscaling parameters with testing parameters")
+		err := updateDNSScalingConfigMap(c, packDNSScalingConfigMap(packLinearParams(&DNSParams1)))
+		framework.ExpectNoError(err)
+		defer func() {
+			ginkgo.By("Restoring initial dns autoscaling parameters")
+			err = updateDNSScalingConfigMap(c, packDNSScalingConfigMap(previousParams))
+			framework.ExpectNoError(err)
+		}()
+		ginkgo.By("Wait for kube-dns scaled to expected number")
+		getExpectReplicasLinear := getExpectReplicasFuncLinear(c, &DNSParams1)
+		err = waitForDNSReplicasSatisfied(c, getExpectReplicasLinear, DNSdefaultTimeout)
+		framework.ExpectNoError(err)
+
+		livenessOn, err := isScalerLivenessProbeEnabled(c)
+		framework.ExpectNoError(err)
+
+		if !livenessOn {
+			e2eskipper.Skipf("Skipping - liveness probe not enabled")
+		}
+
+		// TODO implement
 	})
 })
 
@@ -381,4 +420,19 @@ func waitForDNSConfigMapCreated(c clientset.Interface, timeout time.Duration) (c
 		return nil, fmt.Errorf("err waiting for DNS autoscaling ConfigMap got re-created: %v", err)
 	}
 	return configMap, nil
+}
+
+func isScalerLivenessProbeEnabled(c clientset.Interface) (bool, error) {
+	framework.Logf("Fetching deployment spec for autoscaler")
+	label := labels.SelectorFromSet(labels.Set(map[string]string{ClusterAddonLabelKey: DNSAutoscalerLabelName}))
+	listOpts := metav1.ListOptions{LabelSelector: label.String()}
+	deployments, err := c.AppsV1().Deployments(metav1.NamespaceSystem).List(context.TODO(), listOpts)
+	if err != nil {
+		return false, err
+	}
+	if len(deployments.Items) != 1 {
+		return false, fmt.Errorf("")
+	}
+	autoScalerSpec := deployments.Items[0].Spec
+	return autoScalerSpec.Template.Spec.Containers[0].LivenessProbe != nil, nil
 }

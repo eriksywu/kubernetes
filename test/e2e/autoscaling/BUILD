@@ -43,6 +43,7 @@ go_library(
         "//test/e2e/framework/network:go_default_library",
         "//test/e2e/framework/node:go_default_library",
         "//test/e2e/framework/pod:go_default_library",
+        "//test/e2e/framework/providers/azure:go_default_library",
         "//test/e2e/framework/pv:go_default_library",
         "//test/e2e/framework/rc:go_default_library",
         "//test/e2e/framework/skipper:go_default_library",

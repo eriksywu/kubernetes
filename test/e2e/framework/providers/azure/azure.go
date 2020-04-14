@@ -159,6 +159,19 @@ func (p *Provider) ResizeGroup(group string, size int32) error {
 	if p.azureCloud == nil {
 		return fmt.Errorf("Azure Cloud not initialized")
 	}
+	mcList, err := p.aksClient.managedClusterClient.ListByResourceGroup(context.TODO(), p.resourceGroupName)
+	if err != nil {
+		framework.Logf("error calling MC List api")
+		return err
+	}
+	for mcList.NotDone() {
+		list := mcList.Values()
+		for _, mc := range list {
+			framework.Logf("mc name: %s", *mc.Name)
+		}
+		mcList.Next()
+	}
+
 	framework.Logf("Grabbing Managed Cluster Info from subId = %s, resourcegroup = %s, resource = %s", p.subscriptionID, p.resourceGroupName, p.resourceName)
 	mcModel, err := p.aksClient.managedClusterClient.Get(context.TODO(), p.resourceGroupName, p.resourceName)
 	if err != nil {

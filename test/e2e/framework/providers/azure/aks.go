@@ -8,9 +8,9 @@ import (
 	"github.com/Azure/go-autorest/autorest"
 	"github.com/Azure/go-autorest/autorest/adal"
 	"github.com/Azure/go-autorest/autorest/azure"
-	toml "github.com/pelletier/go-toml"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/legacy-cloud-providers/azure/auth"
+	"sigs.k8s.io/yaml"
 )
 
 const publicCloud = "AZUREPUBLICCLOUD"
@@ -63,7 +63,7 @@ func getAuthConfigFromCloudConfig() (*auth.AzureAuthConfig, error) {
 		return nil, fmt.Errorf("error reading config file %v due to error: %v", authFile, err)
 	}
 	config := &auth.AzureAuthConfig{}
-	err = toml.Unmarshal(content, config)
+	err = yaml.Unmarshal(content, config)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing config file %v due to error: %v", authFile, err)
 	}

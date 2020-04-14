@@ -23,7 +23,7 @@ go_library(
         "//vendor/github.com/Azure/go-autorest/autorest:go_default_library",
         "//vendor/github.com/Azure/go-autorest/autorest/adal:go_default_library",
         "//vendor/github.com/Azure/go-autorest/autorest/azure:go_default_library",
-        "//vendor/github.com/pelletier/go-toml:go_default_library",
+        "//vendor/sigs.k8s.io/yaml:go_default_library",
     ],
 )
 

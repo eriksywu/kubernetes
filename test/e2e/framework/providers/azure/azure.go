@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/services/compute/mgmt/2019-12-01/compute"
-	cs "github.com/Azure/azure-sdk-for-go/services/containerservice/mgmt/2019-08-01/containerservice"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -73,26 +72,30 @@ func newProvider() (framework.ProviderInterface, error) {
 
 	subscriptionID := os.Getenv(subscriptionIDEnv)
 	if subscriptionID == "" {
-		return nil, fmt.Errorf("Could not fetch subscriptionID from environment variable %s", subscriptionIDEnv)
+		return nil, fmt.Errorf("Environment Variable %s not set", subscriptionIDEnv)
 	}
 
 	resourceName := os.Getenv(resourceNameEnv)
 	if resourceName == "" {
-		return nil, fmt.Errorf("Could not fetch resourceName from environment variable %s", resourceNameEnv)
+		return nil, fmt.Errorf("Environment Variable %s not set", resourceNameEnv)
 	}
 
 	resourceGroupName := os.Getenv(resourceGroupNameEnv)
 	if resourceGroupName == "" {
-		return nil, fmt.Errorf("Could not fetch resourceGroupName from environment variable %s", resourceGroupNameEnv)
+		return nil, fmt.Errorf("Environment Variable %s not set", resourceGroupNameEnv)
 	}
 
-	mc := cs.NewManagedClustersClient(subscriptionID)
+	aksClient, err := NewAksClient(subscriptionID)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Provider{
-		azureCloud:           azureCloud.(*azure.Cloud),
-		managedClusterClient: mc,
-		subscriptionID:       subscriptionID,
-		resourceName:         resourceName,
-		resourceGroupName:    resourceGroupName,
+		azureCloud:        azureCloud.(*azure.Cloud),
+		aksClient:         aksClient,
+		subscriptionID:    subscriptionID,
+		resourceName:      resourceName,
+		resourceGroupName: resourceGroupName,
 	}, err
 }
 
@@ -117,11 +120,10 @@ type Provider struct {
 	azureCloud *azure.Cloud
 
 	// TODO can I move this into *azure.Cloud?
-	managedClusterClient cs.ManagedClustersClient
-
-	resourceGroupName string
-	resourceName      string
+	aksClient         *AksClient
 	subscriptionID    string
+	resourceName      string
+	resourceGroupName string
 }
 
 // GroupSize returns the size of an instance group
@@ -156,7 +158,7 @@ func (p *Provider) ResizeGroup(group string, size int32) error {
 	if p.azureCloud == nil {
 		return fmt.Errorf("Azure Cloud not initialized")
 	}
-	mcModel, err := p.managedClusterClient.Get(context.TODO(), p.resourceGroupName, p.resourceName)
+	mcModel, err := p.aksClient.managedClusterClient.Get(context.TODO(), p.resourceGroupName, p.resourceName)
 	if err != nil {
 		return err
 	}
@@ -171,7 +173,7 @@ func (p *Provider) ResizeGroup(group string, size int32) error {
 		*agentPoolProfiles[i].Count = size
 	}
 	// should this share the same context as its returned future object?
-	resFuture, err := p.managedClusterClient.CreateOrUpdate(context.Background(), p.resourceGroupName, p.resourceName, mcModel)
+	resFuture, err := p.aksClient.managedClusterClient.CreateOrUpdate(context.Background(), p.resourceGroupName, p.resourceName, mcModel)
 	if err != nil {
 		return err
 	}
@@ -179,11 +181,11 @@ func (p *Provider) ResizeGroup(group string, size int32) error {
 	updateCtx, cancelFn := context.WithTimeout(context.Background(), time.Hour)
 	defer cancelFn()
 	// wait for update operation to complete
-	err = resFuture.WaitForCompletionRef(updateCtx, p.managedClusterClient.Client)
+	err = resFuture.WaitForCompletionRef(updateCtx, p.aksClient.managedClusterClient.Client)
 	if err != nil {
 		return err
 	}
-	_, err = resFuture.Result(p.managedClusterClient)
+	_, err = resFuture.Result(p.aksClient.managedClusterClient)
 	if err != nil {
 		return err
 	}

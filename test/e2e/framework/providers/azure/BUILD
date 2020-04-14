@@ -2,7 +2,10 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library")
 
 go_library(
     name = "go_default_library",
-    srcs = ["azure.go"],
+    srcs = [
+        "aks.go",
+        "azure.go",
+    ],
     importpath = "k8s.io/kubernetes/test/e2e/framework/providers/azure",
     visibility = ["//visibility:public"],
     deps = [
@@ -13,9 +16,14 @@ go_library(
         "//staging/src/k8s.io/client-go/kubernetes:go_default_library",
         "//staging/src/k8s.io/client-go/tools/clientcmd:go_default_library",
         "//staging/src/k8s.io/legacy-cloud-providers/azure:go_default_library",
+        "//staging/src/k8s.io/legacy-cloud-providers/azure/auth:go_default_library",
         "//test/e2e/framework:go_default_library",
         "//vendor/github.com/Azure/azure-sdk-for-go/services/compute/mgmt/2019-12-01/compute:go_default_library",
         "//vendor/github.com/Azure/azure-sdk-for-go/services/containerservice/mgmt/2019-08-01/containerservice:go_default_library",
+        "//vendor/github.com/Azure/go-autorest/autorest:go_default_library",
+        "//vendor/github.com/Azure/go-autorest/autorest/adal:go_default_library",
+        "//vendor/github.com/Azure/go-autorest/autorest/azure:go_default_library",
+        "//vendor/github.com/pelletier/go-toml:go_default_library",
     ],
 )
 

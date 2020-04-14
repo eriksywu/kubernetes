@@ -144,22 +144,25 @@ func (p *Provider) GroupSize(group string) (int, error) {
 	if err != nil {
 		return -1, err
 	}
-	for _, n := range nodes.Items {
-		fmt.Printf("node name: %s \n", n.Name)
-		fmt.Printf("node labels: %v \n", n.Labels)
-		fmt.Printf("node annotations: %v \n", n.Annotations)
-		fmt.Printf("node taints: %v \n", n.Spec.Taints)
-	}
+	/*
+		for _, n := range nodes.Items {
+			fmt.Printf("node name: %s \n", n.Name)
+			fmt.Printf("node labels: %v \n", n.Labels)
+			fmt.Printf("node annotations: %v \n", n.Annotations)
+			fmt.Printf("node taints: %v \n", n.Spec.Taints)
+		}*/
 	return len(nodes.Items), nil
 }
 
 func (p *Provider) ResizeGroup(group string, size int32) error {
-	framework.Logf("resizing to size %d", group, size)
+	framework.Logf("resizing to size %d", size)
 	if p.azureCloud == nil {
 		return fmt.Errorf("Azure Cloud not initialized")
 	}
+	framework.Logf("Grabbing Managed Cluster Info from subId = %s, resourcegroup = %s, resource = %s", p.subscriptionID, p.resourceGroupName, p.resourceName)
 	mcModel, err := p.aksClient.managedClusterClient.Get(context.TODO(), p.resourceGroupName, p.resourceName)
 	if err != nil {
+		framework.Logf("error calling MC api")
 		return err
 	}
 	if mcModel.AgentPoolProfiles == nil || len(*mcModel.AgentPoolProfiles) == 0 {
@@ -169,7 +172,7 @@ func (p *Provider) ResizeGroup(group string, size int32) error {
 	// TODO handle multiple agent pools
 	agentPoolProfiles := *(mcModel.AgentPoolProfiles)
 	for i, p := range agentPoolProfiles {
-		framework.Logf("resizing pool %s from size %d to size %d", p.Name, p.Count, size)
+		framework.Logf("resizing pool %s from size %d to size %d", p.Name, *p.Count, size)
 		*agentPoolProfiles[i].Count = size
 	}
 	// should this share the same context as its returned future object?

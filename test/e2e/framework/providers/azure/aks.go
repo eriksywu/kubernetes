@@ -21,6 +21,7 @@ type AksClient struct {
 }
 
 func NewAksClient(subscriptionID string) (*AksClient, error) {
+	framework.Logf("Creating new AKS Client for SubID = %s", subscriptionID)
 	authConfig, err := getAuthConfigFromCloudConfig()
 	if err != nil {
 		return nil, err

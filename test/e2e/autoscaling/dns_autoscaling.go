@@ -249,9 +249,9 @@ var _ = SIGDescribe("[ProportionalScaling] DNS horizontal autoscaling", func() {
 			ginkgo.By("Restoring initial dns autoscaling parameters")
 			err = updateDNSScalingConfigMap(c, packDNSScalingConfigMap(previousParams))
 			framework.ExpectNoError(err)
-			// Delete the pod since it might be in crashloop
-			ginkgo.By("Reset the autoscaler deployment pod")
-			err = deleteDNSAutoscalerPod(c)
+			// Delete the deployment entirely and have it reconciled by addonmgr
+			ginkgo.By("Reset the autoscaler deployment")
+			err = deleteScalerDeployment(c)
 			framework.ExpectNoError(err)
 		}()
 		ginkgo.By("Wait for kube-dns scaled to expected number")
@@ -447,11 +447,6 @@ func waitForScalerPodToRestart(c clientset.Interface, timeout time.Duration, res
 	condition := func() (bool, error) {
 		pod, err := c.CoreV1().Pods(metav1.NamespaceSystem).Get(context.TODO(), scalerPodName, metav1.GetOptions{})
 		if errors.IsNotFound(err) {
-			pods, _ := c.CoreV1().Pods(metav1.NamespaceSystem).List(context.TODO(), listOpts)
-			if len(pods.Items) == 0 {
-				return false, err
-			}
-			framework.Logf("pod %s has been destroyed and replaced by %s", scalerPodName, pods.Items[0].Name)
 			return true, nil
 		}
 		if err != nil {

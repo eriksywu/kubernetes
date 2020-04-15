@@ -25,6 +25,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
+	. "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -234,8 +235,15 @@ var _ = SIGDescribe("[ProportionalScaling] DNS horizontal autoscaling", func() {
 
 	ginkgo.It("[ProportionalScaling] [Liveness] kube-dns-autoscaler should restart at last-poll liveness fail", func() {
 		e2eskipper.SkipUnlessProviderIs("azure")
+
+		livenessOn, err := isScalerLivenessProbeEnabled(c)
+		framework.ExpectNoError(err)
+		if !livenessOn {
+			e2eskipper.Skipf("Skipping - liveness http probe not enabled")
+		}
+
 		ginkgo.By("Replace the dns autoscaling parameters with testing parameters")
-		err := updateDNSScalingConfigMap(c, packDNSScalingConfigMap(packLinearParams(&DNSParams1)))
+		err = updateDNSScalingConfigMap(c, packDNSScalingConfigMap(packLinearParams(&DNSParams1)))
 		framework.ExpectNoError(err)
 		defer func() {
 			ginkgo.By("Restoring initial dns autoscaling parameters")
@@ -250,13 +258,6 @@ var _ = SIGDescribe("[ProportionalScaling] DNS horizontal autoscaling", func() {
 		getExpectReplicasLinear := getExpectReplicasFuncLinear(c, &DNSParams1)
 		err = waitForDNSReplicasSatisfied(c, getExpectReplicasLinear, DNSdefaultTimeout)
 		framework.ExpectNoError(err)
-
-		livenessOn, err := isScalerLivenessProbeEnabled(c)
-		framework.ExpectNoError(err)
-
-		if !livenessOn {
-			e2eskipper.Skipf("Skipping - liveness probe not enabled")
-		}
 
 		// pollute the cpa's configMap with bad parameters
 		badScalingParams := make(map[string]string)
@@ -445,6 +446,14 @@ func waitForScalerPodToRestart(c clientset.Interface, timeout time.Duration, res
 
 	condition := func() (bool, error) {
 		pod, err := c.CoreV1().Pods(metav1.NamespaceSystem).Get(context.TODO(), scalerPodName, metav1.GetOptions{})
+		if IsNotFound(err) {
+			pods, _ := c.CoreV1().Pods(metav1.NamespaceSystem).List(context.TODO(), listOpts)
+			if len(pods.Items) == 0 {
+				return false, err
+			}
+			framework.Logf("pod %s has been destroyed and replaced by %s", scalerPodName, pods.Items[0].Name)
+			return true, nil
+		}
 		if err != nil {
 			return false, err
 		}

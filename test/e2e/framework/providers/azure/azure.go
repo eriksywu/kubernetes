@@ -154,6 +154,7 @@ func (p *Provider) GroupSize(group string) (int, error) {
 	return len(nodes.Items), nil
 }
 
+// TODO move this over to aks.go
 func (p *Provider) ResizeGroup(group string, size int32) error {
 	framework.Logf("resizing to size %d", size)
 	if p.azureCloud == nil {

@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -44,7 +45,10 @@ const (
 	ClusterAddonLabelKey   = "k8s-app"
 	DNSLabelName           = "kube-dns"
 	DNSAutoscalerLabelName = "kube-dns-autoscaler"
+	LastPollLivenessProbe  = "/last-poll"
 )
+
+var scalerDeployment appsv1.Deployment
 
 var _ = SIGDescribe("[ProportionalScaling] DNS horizontal autoscaling", func() {
 	f := framework.NewDefaultFramework("dns-autoscaling")
@@ -58,6 +62,12 @@ var _ = SIGDescribe("[ProportionalScaling] DNS horizontal autoscaling", func() {
 	ginkgo.BeforeEach(func() {
 		//e2eskipper.SkipUnlessProviderIs("gce", "gke", "aks", "azure")
 		c = f.ClientSet
+
+		label := labels.SelectorFromSet(labels.Set(map[string]string{ClusterAddonLabelKey: DNSAutoscalerLabelName}))
+		listOpts := metav1.ListOptions{LabelSelector: label.String()}
+		deployments, err := c.AppsV1().Deployments(metav1.NamespaceSystem).List(context.TODO(), listOpts)
+		framework.ExpectNoError(err)
+		scalerDeployment = deployments.Items[0]
 
 		nodes, err := e2enode.GetReadySchedulableNodes(c)
 		framework.ExpectNoError(err)
@@ -259,7 +269,20 @@ var _ = SIGDescribe("[ProportionalScaling] DNS horizontal autoscaling", func() {
 			e2eskipper.Skipf("Skipping - liveness probe not enabled")
 		}
 
-		// TODO implement
+		// pollute the cpa's configMap with bad parameters
+		badScalingParams := make(map[string]string)
+		badScalingParams["NeitherLinearNorLadder"] = fmt.Sprintf("{\"nodesPerReplica\": %v,\"coresPerReplica\": %v,\"min\": %v,\"max\": %v}",
+			1, 1, 1, 1)
+
+		ginkgo.By("Replace the dns autoscaling parameters with erroneous parameters")
+		err = updateDNSScalingConfigMap(c, packDNSScalingConfigMap(badScalingParams))
+		framework.ExpectNoError(err)
+
+		ginkgo.By("Scaler pod should start failing liveness probe and should restart")
+		// checking for one restart is okay to avoid going into crashloopbackoff
+		err = waitForScalerPodToRestart(c, DNSdefaultTimeout, 1)
+		framework.ExpectNoError(err)
+
 	})
 })
 
@@ -422,17 +445,50 @@ func waitForDNSConfigMapCreated(c clientset.Interface, timeout time.Duration) (c
 	return configMap, nil
 }
 
-func isScalerLivenessProbeEnabled(c clientset.Interface) (bool, error) {
-	framework.Logf("Fetching deployment spec for autoscaler")
+func waitForScalerPodToRestart(c clientset.Interface, timeout time.Duration, restartTarget int32) error {
+	framework.Logf("Waiting for scaler pod to go into restart")
 	label := labels.SelectorFromSet(labels.Set(map[string]string{ClusterAddonLabelKey: DNSAutoscalerLabelName}))
 	listOpts := metav1.ListOptions{LabelSelector: label.String()}
-	deployments, err := c.AppsV1().Deployments(metav1.NamespaceSystem).List(context.TODO(), listOpts)
+	pods, err := c.CoreV1().Pods(metav1.NamespaceSystem).List(context.TODO(), listOpts)
 	if err != nil {
-		return false, err
+		return err
 	}
-	if len(deployments.Items) != 1 {
-		return false, fmt.Errorf("")
+	scalerPodName := pods.Items[0].Name
+
+	condition := func() (bool, error) {
+		pod, err := c.CoreV1().Pods(metav1.NamespaceSystem).Get(context.TODO(), scalerPodName, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		return pod.Status.ContainerStatuses[0].RestartCount >= restartTarget, nil
 	}
-	autoScalerSpec := deployments.Items[0].Spec
-	return autoScalerSpec.Template.Spec.Containers[0].LivenessProbe != nil, nil
+
+	if err := wait.Poll(10*time.Second, timeout, condition); err != nil {
+		return fmt.Errorf("err waiting for DNS autoscaler pod to restart: %v", err)
+	}
+	return nil
+}
+
+func isScalerLivenessProbeEnabled(c clientset.Interface) (bool, error) {
+	autoScalerSpec := scalerDeployment.Spec
+	livenessProbe := autoScalerSpec.Template.Spec.Containers[0].LivenessProbe
+	if livenessProbe == nil {
+		return false, nil
+	}
+	if livenessProbe.HTTPGet == nil {
+		return false, nil
+	}
+	return livenessProbe.HTTPGet.Path == LastPollLivenessProbe, nil
+}
+
+func deleteScalerDeployment(c clientset.Interface) error {
+	err := c.AppsV1().Deployments(metav1.NamespaceSystem).Delete(context.TODO(), scalerDeployment.Name, metav1.DeleteOptions{})
+	if err != nil {
+		return err
+	}
+	_, err = c.AppsV1().Deployments(metav1.NamespaceSystem).Create(context.TODO(), &scalerDeployment, metav1.CreateOptions{})
+	if err != nil {
+		return nil
+	}
+	return nil
 }

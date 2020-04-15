@@ -114,6 +114,7 @@ var _ = SIGDescribe("[ProportionalScaling] DNS horizontal autoscaling", func() {
 	// This test is separated because it is slow and need to run serially.
 	// Will take around 5 minutes to run on a 4 nodes cluster.
 	ginkgo.It("[ProportionalScaling] [Serial] [Slow] kube-dns-autoscaler should scale kube-dns pods when cluster size changed", func() {
+		e2eskipper.SkipUnlessProviderIs("gce", "gke")
 		numNodes, err := e2enode.TotalRegistered(c)
 		framework.ExpectNoError(err)
 
@@ -155,8 +156,6 @@ var _ = SIGDescribe("[ProportionalScaling] DNS horizontal autoscaling", func() {
 			originalSizes[mig] = size
 		}
 
-		//framework.
-
 		ginkgo.By("Manually increase cluster size")
 		increasedSizes := make(map[string]int)
 		for key, val := range originalSizes {
@@ -193,7 +192,7 @@ var _ = SIGDescribe("[ProportionalScaling] DNS horizontal autoscaling", func() {
 
 	// TODO: Get rid of [DisabledForLargeClusters] tag when issue #55779 is fixed.
 	ginkgo.It("[ProportionalScaling] [DisabledForLargeClusters] kube-dns-autoscaler should scale kube-dns pods in both nonfaulty and faulty scenarios", func() {
-
+		e2eskipper.SkipUnlessProviderIs("gce", "gke", "azure")
 		ginkgo.By("Replace the dns autoscaling parameters with testing parameters")
 		err := updateDNSScalingConfigMap(c, packDNSScalingConfigMap(packLinearParams(&DNSParams1)))
 		framework.ExpectNoError(err)
@@ -248,7 +247,7 @@ var _ = SIGDescribe("[ProportionalScaling] DNS horizontal autoscaling", func() {
 	})
 
 	ginkgo.It("[ProportionalScaling] [Liveness] kube-dns-autoscaler should restart at liveness fail", func() {
-
+		e2eskipper.SkipUnlessProviderIs("gce", "gke", "azure")
 		ginkgo.By("Replace the dns autoscaling parameters with testing parameters")
 		err := updateDNSScalingConfigMap(c, packDNSScalingConfigMap(packLinearParams(&DNSParams1)))
 		framework.ExpectNoError(err)

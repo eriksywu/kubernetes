@@ -45,9 +45,7 @@ const (
 const notImplemented = "Not yet implemented for Azure Provider"
 
 func init() {
-	framework.Logf("AZURE PROVIDER PACKAGE INITIALIZED")
 	framework.RegisterProvider("azure", newProvider)
-	framework.RegisterProvider("aks", newProvider)
 }
 
 func newProvider() (framework.ProviderInterface, error) {
@@ -144,13 +142,6 @@ func (p *Provider) GroupSize(group string) (int, error) {
 	if err != nil {
 		return -1, err
 	}
-	/*
-		for _, n := range nodes.Items {
-			fmt.Printf("node name: %s \n", n.Name)
-			fmt.Printf("node labels: %v \n", n.Labels)
-			fmt.Printf("node annotations: %v \n", n.Annotations)
-			fmt.Printf("node taints: %v \n", n.Spec.Taints)
-		}*/
 	return len(nodes.Items), nil
 }
 

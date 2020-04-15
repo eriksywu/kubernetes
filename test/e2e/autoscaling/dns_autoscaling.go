@@ -48,8 +48,6 @@ const (
 	LastPollLivenessProbe  = "/last-poll"
 )
 
-var scalerDeployment appsv1.Deployment
-
 var _ = SIGDescribe("[ProportionalScaling] DNS horizontal autoscaling", func() {
 	f := framework.NewDefaultFramework("dns-autoscaling")
 	var c clientset.Interface
@@ -61,12 +59,6 @@ var _ = SIGDescribe("[ProportionalScaling] DNS horizontal autoscaling", func() {
 
 	ginkgo.BeforeEach(func() {
 		c = f.ClientSet
-
-		label := labels.SelectorFromSet(labels.Set(map[string]string{ClusterAddonLabelKey: DNSAutoscalerLabelName}))
-		listOpts := metav1.ListOptions{LabelSelector: label.String()}
-		deployments, err := c.AppsV1().Deployments(metav1.NamespaceSystem).List(context.TODO(), listOpts)
-		framework.ExpectNoError(err)
-		scalerDeployment = deployments.Items[0]
 
 		nodes, err := e2enode.GetReadySchedulableNodes(c)
 		framework.ExpectNoError(err)
@@ -250,9 +242,9 @@ var _ = SIGDescribe("[ProportionalScaling] DNS horizontal autoscaling", func() {
 			err = updateDNSScalingConfigMap(c, packDNSScalingConfigMap(previousParams))
 			framework.ExpectNoError(err)
 			// Delete the pod since it might be in crashloop
-			ginkgo.By("Reset the autoscaler deployment pod")
-			err = deleteDNSAutoscalerPod(c)
-			framework.ExpectNoError(err)
+			//ginkgo.By("Reset the autoscaler deployment pod")
+			//err = deleteDNSAutoscalerPod(c)
+			//framework.ExpectNoError(err)
 		}()
 		ginkgo.By("Wait for kube-dns scaled to expected number")
 		getExpectReplicasLinear := getExpectReplicasFuncLinear(c, &DNSParams1)
@@ -268,10 +260,24 @@ var _ = SIGDescribe("[ProportionalScaling] DNS horizontal autoscaling", func() {
 		err = updateDNSScalingConfigMap(c, packDNSScalingConfigMap(badScalingParams))
 		framework.ExpectNoError(err)
 
-		ginkgo.By("Scaler pod should start failing liveness probe and should restart")
+		ginkgo.By("--- Scenario: Scaler pod should start failing liveness probe and should restart ---")
 		// checking for one restart is okay to avoid going into crashloopbackoff
 		err = waitForScalerPodToRestart(c, DNSdefaultTimeout, 1)
 		framework.ExpectNoError(err)
+
+		ginkgo.By("Replace the dns autoscaling parameters with legitmate testing parameters")
+		err = updateDNSScalingConfigMap(c, packDNSScalingConfigMap(packLinearParams(&DNSParams1)))
+		framework.ExpectNoError(err)
+
+		ginkgo.By("Delete the autoscaler pod for kube-dns")
+		err = deleteDNSScalingConfigMap(c)
+		framework.ExpectNoError(err)
+
+		ginkgo.By("Wait for kube-dns scaled to expected number")
+		getExpectReplicasLinear = getExpectReplicasFuncLinear(c, &DNSParams1)
+		err = waitForDNSReplicasSatisfied(c, getExpectReplicasLinear, DNSdefaultTimeout)
+		framework.ExpectNoError(err)
+
 	})
 })
 
@@ -464,22 +470,21 @@ func waitForScalerPodToRestart(c clientset.Interface, timeout time.Duration, res
 }
 
 func isScalerLivenessProbeEnabled(c clientset.Interface) (bool, error) {
-	autoScalerSpec := scalerDeployment.Spec
-	livenessProbe := autoScalerSpec.Template.Spec.Containers[0].LivenessProbe
+	scalerDeployment, err := getScalerDeployment(c)
+	framework.ExpectNoError(err)
+	livenessProbe := scalerDeployment.Spec.Template.Spec.Containers[0].LivenessProbe
 	if livenessProbe == nil || livenessProbe.HTTPGet == nil {
 		return false, nil
 	}
 	return livenessProbe.HTTPGet.Path == LastPollLivenessProbe, nil
 }
 
-func deleteScalerDeployment(c clientset.Interface) error {
-	err := c.AppsV1().Deployments(metav1.NamespaceSystem).Delete(context.TODO(), scalerDeployment.Name, metav1.DeleteOptions{})
+func getScalerDeployment(c clientset.Interface) (*appsv1.Deployment, error) {
+	label := labels.SelectorFromSet(labels.Set(map[string]string{ClusterAddonLabelKey: DNSAutoscalerLabelName}))
+	listOpts := metav1.ListOptions{LabelSelector: label.String()}
+	deployments, err := c.AppsV1().Deployments(metav1.NamespaceSystem).List(context.TODO(), listOpts)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	_, err = c.AppsV1().Deployments(metav1.NamespaceSystem).Create(context.TODO(), &scalerDeployment, metav1.CreateOptions{})
-	if err != nil {
-		return nil
-	}
-	return nil
+	return &deployments.Items[0], nil
 }

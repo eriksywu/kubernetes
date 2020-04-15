@@ -25,7 +25,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
-	. "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -446,7 +446,7 @@ func waitForScalerPodToRestart(c clientset.Interface, timeout time.Duration, res
 
 	condition := func() (bool, error) {
 		pod, err := c.CoreV1().Pods(metav1.NamespaceSystem).Get(context.TODO(), scalerPodName, metav1.GetOptions{})
-		if IsNotFound(err) {
+		if errors.IsNotFound(err) {
 			pods, _ := c.CoreV1().Pods(metav1.NamespaceSystem).List(context.TODO(), listOpts)
 			if len(pods.Items) == 0 {
 				return false, err

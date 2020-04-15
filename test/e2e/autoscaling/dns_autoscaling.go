@@ -59,7 +59,6 @@ var _ = SIGDescribe("[ProportionalScaling] DNS horizontal autoscaling", func() {
 	var DNSParams3 DNSParamsLinear
 
 	ginkgo.BeforeEach(func() {
-		//e2eskipper.SkipUnlessProviderIs("gce", "gke", "aks", "azure")
 		c = f.ClientSet
 
 		label := labels.SelectorFromSet(labels.Set(map[string]string{ClusterAddonLabelKey: DNSAutoscalerLabelName}))
@@ -233,8 +232,8 @@ var _ = SIGDescribe("[ProportionalScaling] DNS horizontal autoscaling", func() {
 		framework.ExpectNoError(err)
 	})
 
-	ginkgo.It("[ProportionalScaling] [Liveness] kube-dns-autoscaler should restart at liveness fail", func() {
-		e2eskipper.SkipUnlessProviderIs("gce", "gke", "azure")
+	ginkgo.It("[ProportionalScaling] [Liveness] kube-dns-autoscaler should restart at last-poll liveness fail", func() {
+		e2eskipper.SkipUnlessProviderIs("azure")
 		ginkgo.By("Replace the dns autoscaling parameters with testing parameters")
 		err := updateDNSScalingConfigMap(c, packDNSScalingConfigMap(packLinearParams(&DNSParams1)))
 		framework.ExpectNoError(err)
@@ -458,10 +457,7 @@ func waitForScalerPodToRestart(c clientset.Interface, timeout time.Duration, res
 func isScalerLivenessProbeEnabled(c clientset.Interface) (bool, error) {
 	autoScalerSpec := scalerDeployment.Spec
 	livenessProbe := autoScalerSpec.Template.Spec.Containers[0].LivenessProbe
-	if livenessProbe == nil {
-		return false, nil
-	}
-	if livenessProbe.HTTPGet == nil {
+	if livenessProbe == nil || livenessProbe.HTTPGet == nil {
 		return false, nil
 	}
 	return livenessProbe.HTTPGet.Path == LastPollLivenessProbe, nil

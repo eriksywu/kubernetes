@@ -249,9 +249,9 @@ var _ = SIGDescribe("[ProportionalScaling] DNS horizontal autoscaling", func() {
 			ginkgo.By("Restoring initial dns autoscaling parameters")
 			err = updateDNSScalingConfigMap(c, packDNSScalingConfigMap(previousParams))
 			framework.ExpectNoError(err)
-			// Delete the deployment entirely and have it reconciled by addonmgr
-			ginkgo.By("Reset the autoscaler deployment")
-			err = deleteScalerDeployment(c)
+			// Delete the pod since it might be in crashloop
+			ginkgo.By("Reset the autoscaler deployment pod")
+			err = deleteDNSAutoscalerPod(c)
 			framework.ExpectNoError(err)
 		}()
 		ginkgo.By("Wait for kube-dns scaled to expected number")
@@ -446,10 +446,10 @@ func waitForScalerPodToRestart(c clientset.Interface, timeout time.Duration, res
 
 	condition := func() (bool, error) {
 		pod, err := c.CoreV1().Pods(metav1.NamespaceSystem).Get(context.TODO(), scalerPodName, metav1.GetOptions{})
-		if errors.IsNotFound(err) {
-			return true, nil
-		}
 		if err != nil {
+			if errors.IsNotFound(err) {
+				return true, nil
+			}
 			return false, err
 		}
 		restartCount := pod.Status.ContainerStatuses[0].RestartCount

@@ -270,7 +270,7 @@ var _ = SIGDescribe("[ProportionalScaling] DNS horizontal autoscaling", func() {
 		framework.ExpectNoError(err)
 
 		ginkgo.By("Delete the autoscaler pod for kube-dns")
-		err = deleteDNSScalingConfigMap(c)
+		err = deleteDNSAutoscalerPod(c)
 		framework.ExpectNoError(err)
 
 		ginkgo.By("Wait for kube-dns scaled to expected number")

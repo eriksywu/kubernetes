@@ -25,6 +25,7 @@ import (
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/klog"
@@ -41,10 +42,22 @@ var (
 	errNodeNotInitialized = fmt.Errorf("providerID is empty, the node is not initialized yet")
 )
 
+func (az *Cloud) emitEventOnError(nodeName types.NodeName, err error, handlerName string) {
+	if err == nil {
+		return
+	}
+	node, nerr := az.KubeClient.CoreV1().Nodes().Get(context.TODO(), string(nodeName), metav1.GetOptions{})
+	if nerr != nil {
+		az.Event(node, v1.EventTypeWarning, handlerName, err.Error())
+	}
+}
+
 // NodeAddresses returns the addresses of the specified instance.
-func (az *Cloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1.NodeAddress, error) {
+func (az *Cloud) NodeAddresses(ctx context.Context, name types.NodeName) (addresses []v1.NodeAddress, err error) {
+	defer az.emitEventOnError(name, err, "NodeAddresses")
 	// Returns nil for unmanaged nodes because azure cloud provider couldn't fetch information for them.
-	unmanaged, err := az.IsNodeUnmanaged(string(name))
+	var unmanaged bool
+	unmanaged, err = az.IsNodeUnmanaged(string(name))
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +73,7 @@ func (az *Cloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1.N
 			return nil, err
 		}
 
-		addresses := []v1.NodeAddress{
+		addresses = []v1.NodeAddress{
 			{Type: v1.NodeInternalIP, Address: ip},
 			{Type: v1.NodeHostName, Address: string(name)},
 		}
@@ -149,7 +162,7 @@ func (az *Cloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1.N
 // NodeAddressesByProviderID returns the node addresses of an instances with the specified unique providerID
 // This method will not be called from the node that is requesting this ID. i.e. metadata service
 // and other local methods cannot be used here
-func (az *Cloud) NodeAddressesByProviderID(ctx context.Context, providerID string) ([]v1.NodeAddress, error) {
+func (az *Cloud) NodeAddressesByProviderID(ctx context.Context, providerID string) (addresses []v1.NodeAddress, err error) {
 	if providerID == "" {
 		return nil, errNodeNotInitialized
 	}
@@ -161,6 +174,7 @@ func (az *Cloud) NodeAddressesByProviderID(ctx context.Context, providerID strin
 	}
 
 	name, err := az.vmSet.GetNodeNameByProviderID(providerID)
+	defer az.emitEventOnError(name, err, "NodeAddressesByProviderID")
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +184,7 @@ func (az *Cloud) NodeAddressesByProviderID(ctx context.Context, providerID strin
 
 // InstanceExistsByProviderID returns true if the instance with the given provider id still exists and is running.
 // If false is returned with no error, the instance will be immediately deleted by the cloud controller manager.
-func (az *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID string) (bool, error) {
+func (az *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID string) (_ bool, err error) {
 	if providerID == "" {
 		return false, errNodeNotInitialized
 	}
@@ -182,6 +196,7 @@ func (az *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID stri
 	}
 
 	name, err := az.vmSet.GetNodeNameByProviderID(providerID)
+	defer az.emitEventOnError(name, err, "InstanceExistsByProviderID")
 	if err != nil {
 		if err == cloudprovider.InstanceNotFound {
 			return false, nil
@@ -201,12 +216,13 @@ func (az *Cloud) InstanceExistsByProviderID(ctx context.Context, providerID stri
 }
 
 // InstanceShutdownByProviderID returns true if the instance is in safe state to detach volumes
-func (az *Cloud) InstanceShutdownByProviderID(ctx context.Context, providerID string) (bool, error) {
+func (az *Cloud) InstanceShutdownByProviderID(ctx context.Context, providerID string) (_ bool, err error) {
 	if providerID == "" {
 		return false, nil
 	}
 
 	nodeName, err := az.vmSet.GetNodeNameByProviderID(providerID)
+	defer az.emitEventOnError(nodeName, err, "InstanceShutdownByProviderID")
 	if err != nil {
 		// Returns false, so the controller manager will continue to check InstanceExistsByProviderID().
 		if err == cloudprovider.InstanceNotFound {
@@ -251,8 +267,10 @@ func (az *Cloud) isCurrentInstance(name types.NodeName, metadataVMName string) (
 
 // InstanceID returns the cloud provider ID of the specified instance.
 // Note that if the instance does not exist or is no longer running, we must return ("", cloudprovider.InstanceNotFound)
-func (az *Cloud) InstanceID(ctx context.Context, name types.NodeName) (string, error) {
-	nodeName := mapNodeNameToVMName(name)
+func (az *Cloud) InstanceID(ctx context.Context, name types.NodeName) (nodeName string, err error) {
+	defer az.emitEventOnError(name, err, "InstanceID")
+
+	nodeName = mapNodeNameToVMName(name)
 	unmanaged, err := az.IsNodeUnmanaged(nodeName)
 	if err != nil {
 		return "", err
@@ -316,7 +334,7 @@ func (az *Cloud) InstanceID(ctx context.Context, name types.NodeName) (string, e
 // InstanceTypeByProviderID returns the cloudprovider instance type of the node with the specified unique providerID
 // This method will not be called from the node that is requesting this ID. i.e. metadata service
 // and other local methods cannot be used here
-func (az *Cloud) InstanceTypeByProviderID(ctx context.Context, providerID string) (string, error) {
+func (az *Cloud) InstanceTypeByProviderID(ctx context.Context, providerID string) (_ string, err error) {
 	if providerID == "" {
 		return "", errNodeNotInitialized
 	}
@@ -328,6 +346,7 @@ func (az *Cloud) InstanceTypeByProviderID(ctx context.Context, providerID string
 	}
 
 	name, err := az.vmSet.GetNodeNameByProviderID(providerID)
+	defer az.emitEventOnError(name, err, "InstanceTypeByProviderID")
 	if err != nil {
 		return "", err
 	}
@@ -339,8 +358,9 @@ func (az *Cloud) InstanceTypeByProviderID(ctx context.Context, providerID string
 // Note that if the instance does not exist or is no longer running, we must return ("", cloudprovider.InstanceNotFound)
 // (Implementer Note): This is used by kubelet. Kubelet will label the node. Real log from kubelet:
 //       Adding node label from cloud provider: beta.kubernetes.io/instance-type=[value]
-func (az *Cloud) InstanceType(ctx context.Context, name types.NodeName) (string, error) {
+func (az *Cloud) InstanceType(ctx context.Context, name types.NodeName) (_ string, err error) {
 	// Returns "" for unmanaged nodes because azure cloud provider couldn't fetch information for them.
+	defer az.emitEventOnError(name, err, "InstanceShutdownByProviderID")
 	unmanaged, err := az.IsNodeUnmanaged(string(name))
 	if err != nil {
 		return "", err
